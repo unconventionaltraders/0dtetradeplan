@@ -6,7 +6,7 @@
   :root{
     --bg:#0B0D12; --panel:#12151C; --panel2:#161A23; --border:#232838;
     --text:#E8E9ED; --sub:#8A8F9C; --dim:#565C6C;
-    --accent:#C9A24B; --pos:#6FCF97; --neg:#D9695C; --flip:#C9A24B;
+    --accent:#C9A24B; --pos:#6FCF97; --neg:#D9695C; --flip:#C9A24B; --absorb:#7FA8D1;
     --accent-dim: rgba(201,162,75,0.12);
   }
   *{box-sizing:border-box;}
@@ -45,6 +45,7 @@
   .lv.support{border-left:3px solid var(--pos);} .lv.support .price{color:var(--pos);}
   .lv.flip{border-left:3px solid var(--flip);border-style:dashed;} .lv.flip .price{color:var(--flip);}
   .lv.accel{border-left:3px solid var(--dim);}
+  .lv.absorb{border-left:3px solid var(--absorb);border-style:dotted;} .lv.absorb .price{color:var(--absorb);}
   .spotline{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;background:var(--accent-dim);font-family:'Space Mono',monospace;font-size:12.5px;font-weight:700;border-left:3px solid var(--text);border-bottom:1px solid var(--border);}
   .playbook-block{border-left:3px solid var(--border);padding:12px 16px;margin-bottom:12px;background:var(--panel2);border-radius:0 8px 8px 0;}
   .playbook-block.note{border-color:var(--flip);} .playbook-block.long{border-color:var(--pos);}
@@ -306,6 +307,17 @@ async function extractPdf(file){
   return full;
 }
 
+function findHighGammaZone(text){
+  const re = new RegExp(flex('High')+'[\\s\\S]{0,10}?'+flex('Zone Edge')+'\\D{0,20}?([\\d,]+(?:\\.\\d+)?)','i');
+  const m = text.match(re);
+  return m ? m[1].replace(/,/g,'') : '';
+}
+function findLowGammaZone(text){
+  const re = new RegExp(flex('Low')+'[\\s\\S]{0,10}?'+flex('Zone Edge')+'\\D{0,20}?([\\d,]+(?:\\.\\d+)?)','i');
+  const m = text.match(re);
+  return m ? m[1].replace(/,/g,'') : '';
+}
+
 function parsePlan(text){
   const headers = ['REGIME NOTE','LONG SETUPS','SHORT / FADE SETUPS','RISK TRIGGER','PRIMARY LINE IN THE SAND'];
   return {
@@ -318,6 +330,8 @@ function parsePlan(text){
     zeroGamma: findNum(text,'ZERO GAMMA'),
     convexUp: findNum(text,'Convex-Up Edge'),
     convexDown: findNum(text,'Convex-Down Edge'),
+    highGammaZone: findHighGammaZone(text),
+    lowGammaZone: findLowGammaZone(text),
     sessionLow: findAfterAnchor(text,'Session Range Low','Expected Range'),
     sessionHigh: findAfterAnchor(text,'Session Range High','Expected Range'),
     atmIv: findPct(text, /ATM implied vol[\s\S]{0,40}?sits at\s*([\d.]+)%/i),
@@ -337,6 +351,7 @@ const REVIEW_FIELDS = [
   ['date','Date (YYYY-MM-DD)'],['regime','Regime'],['netGex','Net GEX'],
   ['spot','NDX Spot'],['putWall','Put Wall'],['callWall','Call Wall'],['zeroGamma','Zero Gamma'],
   ['convexUp','Convex-Up Edge'],['convexDown','Convex-Down Edge'],
+  ['highGammaZone','High-γ Zone Edge'],['lowGammaZone','Low-γ Zone Edge'],
   ['sessionLow','Session Low'],['sessionHigh','Session High'],['atmIv','ATM IV %'],
   ['callHitProb','Call Wall Hit Prob %'],['putHitProb','Put Wall Hit Prob %'],
   ['callTouches','Call Wall Touches'],['putTouches','Put Wall Touches'],['primaryLine','Primary Line']
@@ -468,9 +483,11 @@ function renderPlan(plan){
   const nz = v => v!=='' && v!=null && !isNaN(parseFloat(v));
   let levels = [
     {label:'Convex-Up Edge', price:plan.convexUp, type:'accel'},
+    {label:'High-γ Zone &middot; Absorption', price:plan.highGammaZone, type:'absorb'},
     {label:'Call Wall &middot; Resistance', price:plan.callWall, type:'resistance'},
     {label:'Zero Gamma &middot; Flip', price:plan.zeroGamma, type:'flip'},
     {label:'Put Wall &middot; Support', price:plan.putWall, type:'support'},
+    {label:'Low-γ Zone &middot; Absorption', price:plan.lowGammaZone, type:'absorb'},
     {label:'Convex-Down Edge', price:plan.convexDown, type:'accel'},
   ].filter(l=>nz(l.price)).map(l=>({...l, price:parseFloat(l.price)}));
   levels.sort((a,b)=>b.price-a.price);
@@ -522,7 +539,7 @@ function renderPriceMap(levels, spotVal, plan){
   min -= pad; max += pad;
   const y = p => padTop + (H - padTop - padBottom) * (1 - (p - min) / (max - min));
 
-  const colorFor = t => t==='resistance' ? 'var(--neg)' : t==='support' ? 'var(--pos)' : t==='flip' ? 'var(--flip)' : 'var(--dim)';
+  const colorFor = t => t==='resistance' ? 'var(--neg)' : t==='support' ? 'var(--pos)' : t==='flip' ? 'var(--flip)' : t==='absorb' ? 'var(--absorb)' : 'var(--dim)';
 
   // shaded zone between call wall and put wall = "defended range"
   const callWall = levels.find(l=>l.type==='resistance');
@@ -572,6 +589,12 @@ function renderQuickPlan(plan, levels, spotVal){
   const callWall = plan.callWall, putWall = plan.putWall;
   const nz = v => v!=='' && v!=null && !isNaN(parseFloat(v));
   const triggerLevel = extractTriggerLevel(plan.riskTrigger, plan.zeroGamma);
+  const fadeInvalidation = nz(plan.highGammaZone) ? plan.highGammaZone : plan.convexUp;
+  const holdInvalidation = nz(plan.lowGammaZone) ? plan.lowGammaZone : plan.convexDown;
+  let gammaZoneNote = '';
+  if(nz(plan.highGammaZone)){
+    gammaZoneNote = `<span class="qp-tag risk">HIGH-γ ZONE</span> <b>${plan.highGammaZone}</b> is a local positive-gamma pocket, not just a distant edge — while price stays under it, expect sticky, mean-reverting behavior at ${callWall||'the call wall'}. A clean break and hold above ${plan.highGammaZone} flips that pocket to local negative gamma: dealer hedging starts adding to the move instead of absorbing it, even if the day's overall regime label hasn't changed.`;
+  }
 
   // is the zero-gamma flip sitting inside the put-wall/call-wall box, close to one of the walls?
   const zg = nz(plan.zeroGamma) ? parseFloat(plan.zeroGamma) : null;
@@ -586,7 +609,7 @@ function renderQuickPlan(plan, levels, spotVal){
   if(regime.includes('LONG')){
     steps = [
       `<span class="qp-tag bias">BIAS</span> Long gamma — <b>fade extremes back toward the pin</b>, don't chase breakouts.`,
-      `<span class="qp-tag short">FADE</span> Into <b>${callWall||'call wall'}</b>: look to fade strength short, invalidated by a clean break &amp; hold above the convex-up edge (${plan.convexUp||'—'}).`,
+      `<span class="qp-tag short">FADE</span> Into <b>${callWall||'call wall'}</b>: look to fade strength short, invalidated by a clean break &amp; hold above <b>${fadeInvalidation||'—'}</b>.`,
       `<span class="qp-tag long">LONG</span> Off <b>${putWall||'put wall'}</b>: look for reactions while it holds, best on the retest with FTWM flipping bull and expanding — not the first touch.`,
       `<span class="qp-tag risk">FLIP RISK</span> Sustained close below <b>${triggerLevel}</b> flips the regime to short gamma — stop fading, switch to trend-following.`
     ];
@@ -600,11 +623,12 @@ function renderQuickPlan(plan, levels, spotVal){
     steps = [
       `<span class="qp-tag bias">BIAS</span> At the flip — <b>transition day, no default bias</b>. Structure alone won't tell the story today.`,
       `<span class="qp-tag risk">WAIT</span> Let the tightest cluster of levels resolve first before taking either side.`,
-      `<span class="qp-tag short">FADE (if range holds)</span> Into <b>${callWall||'call wall'}</b> only with full FTWM alignment confirming rejection.`,
+      `<span class="qp-tag short">FADE (if range holds)</span> Into <b>${callWall||'call wall'}</b> only with full FTWM alignment confirming rejection — invalidated above <b>${fadeInvalidation||'—'}</b>.`,
       `<span class="qp-tag long">LONG (if range holds)</span> Off <b>${putWall||'put wall'}</b> only with full FTWM alignment confirming reclaim.`,
       `<span class="qp-tag risk">REGIME RESOLUTION</span> A sustained close below <b>${triggerLevel}</b> tips this into a clean short-gamma day — drop the fade playbook immediately.`
     ];
   }
+  if(gammaZoneNote) steps.push(gammaZoneNote);
   if(localRegimeNote) steps.splice(1, 0, localRegimeNote);
 
   host.innerHTML = steps.map((s,i)=>`<div class="qp-step"><div class="qp-num">${i+1}</div><div class="qp-text">${s}</div></div>`).join('')
@@ -764,6 +788,4 @@ document.getElementById('resetBtn').addEventListener('click', async ()=>{
 });
 
 renderCurrentOrEmpty();
-</script>
-
 </script>
