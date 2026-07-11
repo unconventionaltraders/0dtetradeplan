@@ -382,13 +382,13 @@ document.getElementById('savePlanBtn').addEventListener('click', async ()=>{
   plan.riskTrigger = pendingExtract.riskTrigger;
 
   try{
-    await window.storage.set('plan:'+plan.date, JSON.stringify(plan));
+    await storage.set('plan:'+plan.date, JSON.stringify(plan));
     let idx = [];
-    try{ const r = await window.storage.get('plan-index'); idx = r ? JSON.parse(r.value) : []; }catch(e){ idx = []; }
+    try{ const r = await storage.get('plan-index'); idx = r ? JSON.parse(r.value) : []; }catch(e){ idx = []; }
     idx = idx.filter(d=>d.date!==plan.date);
     idx.push({date:plan.date, regime:plan.regime, spot:plan.spot, putWall:plan.putWall, callWall:plan.callWall, netGex:plan.netGex});
     idx.sort((a,b)=> a.date < b.date ? 1 : -1);
-    await window.storage.set('plan-index', JSON.stringify(idx));
+    await storage.set('plan-index', JSON.stringify(idx));
     toast('Saved plan for '+plan.date);
     document.getElementById('reviewPanel').style.display = 'none';
     loadPlan(plan.date);
@@ -410,7 +410,7 @@ function regimeColor(regime){
 
 async function loadPlan(date){
   try{
-    const r = await window.storage.get('plan:'+date);
+    const r = await storage.get('plan:'+date);
     if(!r){ toast('No saved plan for that date.'); return; }
     currentPlan = JSON.parse(r.value);
     renderPlan(currentPlan);
@@ -641,9 +641,9 @@ document.getElementById('logEntryBtn').addEventListener('click', async ()=>{
   try{
     const key = 'trades:'+currentPlan.date;
     let list = [];
-    try{ const r = await window.storage.get(key); list = r ? JSON.parse(r.value) : []; }catch(e){ list=[]; }
+    try{ const r = await storage.get(key); list = r ? JSON.parse(r.value) : []; }catch(e){ list=[]; }
     list.push(entry);
-    await window.storage.set(key, JSON.stringify(list));
+    await storage.set(key, JSON.stringify(list));
     toast('Entry logged.');
     document.getElementById('entryNotes').value = '';
     resetDrivers();
@@ -658,7 +658,7 @@ async function renderTradeLog(date){
   const tbody = document.getElementById('tradeTbody');
   const empty = document.getElementById('tradeEmpty');
   try{
-    const r = await window.storage.get('trades:'+date);
+    const r = await storage.get('trades:'+date);
     const list = r ? JSON.parse(r.value) : [];
     if(!list.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
     empty.style.display = 'none';
@@ -674,10 +674,10 @@ async function renderTradeLog(date){
     tbody.querySelectorAll('.del').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
         try{
-          const r2 = await window.storage.get('trades:'+date);
+          const r2 = await storage.get('trades:'+date);
           let l2 = r2 ? JSON.parse(r2.value) : [];
           l2 = l2.filter(x=>x.id!==btn.dataset.id);
-          await window.storage.set('trades:'+date, JSON.stringify(l2));
+          await storage.set('trades:'+date, JSON.stringify(l2));
           renderTradeLog(date);
         }catch(err){ console.error(err); }
       });
@@ -691,7 +691,7 @@ async function renderHistory(){
   const tbody = document.getElementById('historyTbody');
   const empty = document.getElementById('historyEmpty');
   try{
-    const r = await window.storage.get('plan-index');
+    const r = await storage.get('plan-index');
     const idx = r ? JSON.parse(r.value) : [];
     if(!idx.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
     empty.style.display='none';
@@ -713,7 +713,7 @@ async function renderHistory(){
 
 async function renderCurrentOrEmpty(){
   try{
-    const r = await window.storage.get('plan-index');
+    const r = await storage.get('plan-index');
     const idx = r ? JSON.parse(r.value) : [];
     if(idx.length){ loadPlan(idx[0].date); }
     else { document.getElementById('emptyState').style.display='block'; document.getElementById('mainArea').style.display='none'; }
@@ -726,13 +726,13 @@ async function renderCurrentOrEmpty(){
 document.getElementById('resetBtn').addEventListener('click', async ()=>{
   if(!confirm('Clear all saved plans and trade logs? This cannot be undone.')) return;
   try{
-    const r = await window.storage.get('plan-index');
+    const r = await storage.get('plan-index');
     const idx = r ? JSON.parse(r.value) : [];
     for(const d of idx){
-      try{ await window.storage.delete('plan:'+d.date); }catch(e){}
-      try{ await window.storage.delete('trades:'+d.date); }catch(e){}
+      try{ await storage.delete('plan:'+d.date); }catch(e){}
+      try{ await storage.delete('trades:'+d.date); }catch(e){}
     }
-    await window.storage.delete('plan-index');
+    await storage.delete('plan-index');
     toast('All data cleared.');
     currentPlan = null;
     document.getElementById('mainArea').style.display='none';
